@@ -9,6 +9,7 @@ function layer:__init(opt)
     self.input_size = opt.img_feat_len
     self.rnn_size = opt.rnn_size
     self.output_size = opt.output_size
+    self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
 
 end
 
