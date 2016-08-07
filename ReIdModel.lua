@@ -22,16 +22,16 @@ function layer:_createInitState()
 
 end
 
-function layer:createClones(len)
+function layer:createClones()
     
     self.rcnns = {}
     print('copy models for video sequence')
     self.rcnns[1] = {self.rcnn}
     self.rcnns[2] = {self.rcnn}
-    for t = 2,len[1] do
+    for t = 2,16 do
         self.rcnns[1][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
-    for t = 2,len[2] do
+    for t = 2,16 do
         self.rcnns[2][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
 
@@ -52,7 +52,6 @@ function layer:evaluate()
         end
     end
 end
-
 
 function layer:updateOutput(input)
     local seq = {}
