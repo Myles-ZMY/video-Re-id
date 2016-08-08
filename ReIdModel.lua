@@ -10,7 +10,8 @@ function layer:__init(opt)
     self.rnn_size = opt.rnn_size
     self.output_size = opt.output_size
     self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
-
+    self.linear = nn.Linear(self.output_size, 200)
+    self._createInitState()
 end
 
 function layer:_createInitState()
@@ -35,6 +36,9 @@ function layer:createClones()
         self.rcnns[2][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
 
+    self.linears = {self.linear}
+    self.linears[2] = self.linear:clone('weight', 'gradWeight')
+
 end
 
 function layer:training()
@@ -53,23 +57,36 @@ function layer:evaluate()
     end
 end
 
+function layer:parameters()
+    local p1, g1 = self.rcnn:parameters()
+    local p2, g2 = self.linear:parameters()
+
+    local params = {}
+    for k,v in pairs(p1) do table.insert(params, v) end
+    for k,v in pairs(p2) do table.insert(params, v) end
+
+    local grad_params = {}
+    for k,v in pairs(g1) do table.insert(grad_params, v) end
+    for k,v in pairs(g2) do table.insert(grad_params, v) end
+
+    return params, grad_params
+end
+
 function layer:updateOutput(input)
     local seq = {}
-    local len = {}
     self.state = {} 
     self._createInitState()
+    if not self.rcnns then self:createClones() end
 
     for i = 1,2 do
         seq[i] = input[i]
-        len[i] = #input[i]
         self.state[i][0] = self.InitState[i] 
     end
         
-    self.createClones(len)
     local ot1 = {}
     local ot2 = {}
     for i = 1,2 do    
-        for t = 1,len1 do
+        for t = 1,16 do
             local img = seq[i][t]
             local out = self.rcnns1[t]:forward({img, self.state[i][t-1]})
             self.state[i][t] = out[2] -- for next fram
@@ -89,33 +106,45 @@ function layer:updateOutput(input)
     end
     sf2 = sf2/#ot2
 
-    local output = {}
-    table.insert(output, sf1)
-    table.insert(output, sf2)
+    local seq_feat = {}
+    table.insert(seq_feat, sf1)
+    table.insert(seq_feat, sf2)
 
-    return output
+    local ident1 = self.linears[1]:forward(sf1)
+    local ident2 = self.linears[2]:forward(sf2)
+    local ident = {}
+    table.insert(ident, ident1)
+    table.insert(ident, ident2)
+
+    self.output = {}
+    table.insert(self.output, seq_feat)
+    table.insert(self.output, ident)
+    return self.output
 end
 
+
 function layer:updateGradInput(input, gradOutput)
-    local n1 = input[1]
-    local n2 = input[2]
-    local dstate1 = {[n1] = self.InitState[1]}
-    local dstate2 = {[n2] = self.InitState[2]}
+    local dstate1 = {[16] = self.InitState[1]}
+    local dstate2 = {[16] = self.InitState[2]}
     local dimgs1 = {}
     local dimgs2 = {}
     --bp for each sequence
-    for t = n1, 1, -1 do
+    for t = 16, 1, -1 do
        local dout = {}
-       table.insert(dout,gradOutput[1]/n1)
-       table.insert(dout,dstate1[t])
+       local df = self.linears[1]:backward(self.output[2][1], gradOutput[2][1])
+       df = (df + gradOutput[1][1])/16
+       table.insert(dout, df)
+       table.insert(dout, dstate1[t])
        local dinputs = self.rcnns[1][t]:backward({input[1][t], self.state[1][t-1]}, dout)
        dimgs1[t] = dinput[1]
        dstate1[t-1] = dinputs[2]
    end
 
-   for t = n2, 1, -1 do
+   for t = 16, 1, -1 do
        local dout = {}
-       table.insert(dout, gradOutput[2]/n2)
+       local df = self.linears[2]:backward(self.output[2][2], gradOutput[2][2])
+       df = (df + gradOutput[1][2])/16
+       table.insert(dout, df)
        table.insert(dout, dstate2[t])
        local dinputs = self.rcnns[2][t]:backward({input[2][t], self.state[2][t-1]}, dout)
        dimgs2[t] = dinput[2]
@@ -141,20 +170,21 @@ function crit:__init()
 
 end
 
-function crit:updateOutput(input)
-    local f1 = input[1]
-    local f2 = input[2]
-    local label1 = input[3][1]
-    local label2 = input[2][2]
-    local identity = input[4]
-    local isize = #f1
+function crit:updateOutput(input, label)
+    local f1 = input[1][1]
+    local f2 = input[1][2]
+    local ident1 = input[2][1]
+    local ident2 = input[2][2]
+    local label1 = label[1]
+    local label2 = label[2]
+    local identity = true
+    if label1 ~= label2 then identity = false end
 
-    assert(f1 == f2, 'feature dimension not match')
-
-    self.tran1 = nn.Linear(isize, 200, false)
-    self.tran2 = tran1:clones('weight', 'gradWeigth')
-    local soft1 = nn.LogSoftMax(self.tran1:forward(f1))
-    local soft2 = nn.LogSoftMax(self.tran2:forward(f2))
+    assert(f1:size() == f2:size(), 'feature dimension not match')
+    self.soft1 = nn.LogSoftMax()
+    self.soft2 = nn.LogSoftMax()
+    local soft1 = self.soft1:forward(ident1)
+    local soft2 = self.soft2:forward(ident2)
     local l1 = -soft1[label1] -- identity loss
     local l2 = -soft2[label2]
     local s_loss
@@ -163,27 +193,34 @@ function crit:updateOutput(input)
         s_loss = torch.sum(torch.pow(f1-f2, 2)) / 2
     else
         self.z = 2 - torch.sum(torch.pow(f1-f2, 2))
-        s_loss = math.max(self.z,0) / 2
+        s_loss = math.max(self.z, 0) / 2
     end
    
     self.output = l1 + l2 + s_loss
     return self.output
 end
 
-function crit:updateOutput(input, gradOutput)
-    local gradInput1
-    local gradInput2
-    local label1 = input[3][1]
-    local label2 = input[3][2]
-    local identity = input[4]
-    gradInput1:resizeAs(input[1]):zero()
-    gradInput2:resizeAs(input[2]):zero()
+function crit:updateOutput(input, label)
+    local df1
+    local df2
+    local f1 = input[1][1]
+    local f2 = input[1][2]
+    local ident1 = input[2][1]
+    local ident2 = input[2][2]
+    local label1 = label[1]
+    local label2 = label[2]
+    local identity = true
+    if label1 ~= label2 then identity = false end
+
+    df1:resizeAs(input[1][1]):zero()
+    df2:resizeAs(input[1][2]):zero()
     local dsoft1 = torch.zeros(200)
     local dsoft2 = torch.zeros(200)
     dsfot1[label1] = -1
     dsoft2[label2] = -1
-    local df1 = self.tran1:backward(f1, dsoft1)
-    local df2 = self.tran2:backward(f2, dsoft2)
+    local dident1 = self.soft1:backward(ident1, dsoft1)
+    local dident2 = self.soft2:backward(ident2, dsoft2)
+
     if identity then 
         df1 = df1 + (f1 - f2)
         df2 = df2 + (f2 - f1)
@@ -198,8 +235,16 @@ function crit:updateOutput(input, gradOutput)
     end
 
     self.gradInput = {}
-    table.insert(self.gradInput, df1)
-    table.insert(sefl.gradInput, df2)
+    local dident = {}
+    table.insert(dident, dident1)
+    table.insert(dident, didnet2)
+
+    local df = {}
+    table.insert(df, df1)
+    table.insert(df, df2)
+
+    table.insert(self.gradInput, df)
+    table.insert(sefl.gradInput, dident)
     return self.gradInput
 end
 
