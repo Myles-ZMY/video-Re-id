@@ -19,6 +19,7 @@ cmd:option('-max_epoch', 500, 'max number of epoch')
 cmd:option('-learning_rate', 1e-3, 'learning rate for training')
 cmd:option('-gpuid', 0, 'which gpu to use, -1=use cpu')
 cmd:option('-seed', 123, 'random number generator seed')
+cmd:option('-checkpath', '', 'checkpoint path for save model parameters empty  =  this folder')
 
 cmd:text()
 
@@ -74,7 +75,6 @@ end
 local epoch = 1
 while epoch <= opt.max_epoch do
     model.net:training()
-    local epoch = 0
     for i = 1,200 do
         local x = index1[i]
         local pos = index2[i]
@@ -139,6 +139,12 @@ while epoch <= opt.max_epoch do
         end
     end
         print('finish the training of epoch' .. epoch)
+        if epoch % 50 == 0 then
+            local checkpoint = model.net
+            local checkpoint_path = path.join(opt.checkpath, 'trained_model')
+            torch.save(checkpoint_path .. '.t7', checkpoint)
+            print('wrote model parameters to' .. checkpont_path .. '.t7')
+        end
         epoch = epoch + 1
     
 end
