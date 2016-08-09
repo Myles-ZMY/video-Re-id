@@ -11,14 +11,14 @@ function layer:__init(opt)
     self.output_size = opt.output_size
     self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
     self.linear = nn.Linear(self.output_size, 200)
-    self._createInitState()
+    self:_createInitState()
 end
 
 function layer:_createInitState()
 
     if not self.InitState then self.InitState = {} end
     for i = 1,2 do
-        self.InitState[t] = torch.zeros(self.rnn_size)
+        self.InitState[i] = torch.zeros(self.rnn_size)
     end
 
 end
@@ -74,26 +74,31 @@ end
 
 function layer:updateOutput(input)
     local seq = {}
-    self.state = {} 
-    self._createInitState()
+    self.state = {{}, {}} 
+    self:_createInitState()
     if not self.rcnns then self:createClones() end
 
     for i = 1,2 do
         seq[i] = input[i]
-        self.state[i][0] = self.InitState[i] 
+        self.state[i][0] = self.InitState[i]:cuda() 
     end
         
     local ot1 = {}
     local ot2 = {}
-    for i = 1,2 do    
-        for t = 1,16 do
-            local img = seq[i][t]
-            local out = self.rcnns1[t]:forward({img, self.state[i][t-1]})
-            self.state[i][t] = out[2] -- for next fram
-            table.insert(ot1, out[1]) -- temporal output
-        end
+    for t = 1,16 do    
+        local img = seq[1][t]
+        local out = self.rcnns[1][t]:forward({img, self.state[1][t-1]})
+        self.state[1][t] = out[2] -- for next fram
+        table.insert(ot1, out[1]) -- temporal output
     end
-    local sf1 = 0 
+
+    for t = 1,16 do
+        local img = seq[2][t]
+        local out = self.rcnns[2][t]:forward({img, self.state[2][t-1]})
+        self.state[2][t] = out[2]
+        table.insert(ot2, out[2])
+    end
+    local sf1 = 0
     local sf2 = 0
 
     for k = 1,#ot1 do
@@ -124,31 +129,31 @@ end
 
 
 function layer:updateGradInput(input, gradOutput)
-    local dstate1 = {[16] = self.InitState[1]}
-    local dstate2 = {[16] = self.InitState[2]}
+    local dstate1 = {[16] = self.InitState[1]:cuda()}
+    local dstate2 = {[16] = self.InitState[2]:cuda()}
     local dimgs1 = {}
     local dimgs2 = {}
     --bp for each sequence
     for t = 16, 1, -1 do
        local dout = {}
-       local df = self.linears[1]:backward(self.output[2][1], gradOutput[2][1])
+       local df = self.linears[1]:backward(self.output[1][1], gradOutput[2][1])
        df = (df + gradOutput[1][1])/16
        table.insert(dout, df)
        table.insert(dout, dstate1[t])
        local dinputs = self.rcnns[1][t]:backward({input[1][t], self.state[1][t-1]}, dout)
-       dimgs1[t] = dinput[1]
+       dimgs1[t] = dinputs[1]
        dstate1[t-1] = dinputs[2]
    end
 
    for t = 16, 1, -1 do
        local dout = {}
-       local df = self.linears[2]:backward(self.output[2][2], gradOutput[2][2])
+       local df = self.linears[2]:backward(self.output[1][2], gradOutput[2][2])
        df = (df + gradOutput[1][2])/16
        table.insert(dout, df)
        table.insert(dout, dstate2[t])
        local dinputs = self.rcnns[2][t]:backward({input[2][t], self.state[2][t-1]}, dout)
-       dimgs2[t] = dinput[2]
-       dstate[t-1] = dinputs[2]
+       dimgs2[t] = dinputs[2]
+       dstate2[t-1] = dinputs[2]
    end
 
    local dimgs = {}
@@ -179,10 +184,11 @@ function crit:updateOutput(input, label)
     local label2 = label[2]
     local identity = true
     if label1 ~= label2 then identity = false end
-
-    assert(f1:size() == f2:size(), 'feature dimension not match')
+    assert(f1:size(1) == f2:size(1), 'feature dimension not match')
     self.soft1 = nn.LogSoftMax()
     self.soft2 = nn.LogSoftMax()
+    self.soft1:cuda()
+    self.soft2:cuda()
     local soft1 = self.soft1:forward(ident1)
     local soft2 = self.soft2:forward(ident2)
     local l1 = -soft1[label1] -- identity loss
@@ -200,9 +206,11 @@ function crit:updateOutput(input, label)
     return self.output
 end
 
-function crit:updateOutput(input, label)
-    local df1
-    local df2
+function crit:updateGradInput(input, label)
+    local df1 = torch.Tensor(128):zero()
+    local df2 = torch.Tensor(128):zero()
+    df1 = df1:cuda()
+    df2 = df2:cuda()
     local f1 = input[1][1]
     local f2 = input[1][2]
     local ident1 = input[2][1]
@@ -211,19 +219,20 @@ function crit:updateOutput(input, label)
     local label2 = label[2]
     local identity = true
     if label1 ~= label2 then identity = false end
-
-    df1:resizeAs(input[1][1]):zero()
-    df2:resizeAs(input[1][2]):zero()
+   
     local dsoft1 = torch.zeros(200)
     local dsoft2 = torch.zeros(200)
-    dsfot1[label1] = -1
+    dsoft1[label1] = -1
     dsoft2[label2] = -1
+    dsoft1 = dsoft1:cuda()
+    dsoft2 = dsoft2:cuda()
     local dident1 = self.soft1:backward(ident1, dsoft1)
     local dident2 = self.soft2:backward(ident2, dsoft2)
 
-    if identity then 
-        df1 = df1 + (f1 - f2)
-        df2 = df2 + (f2 - f1)
+    if identity then
+        local delta_f = f1 - f2
+        df1 = df1 + delta_f
+        df2 = df2 - delta_f
     else
         if self.z < 2 then
             local sum = torch.sum(torch.pow(f1-f2,2))
@@ -237,14 +246,14 @@ function crit:updateOutput(input, label)
     self.gradInput = {}
     local dident = {}
     table.insert(dident, dident1)
-    table.insert(dident, didnet2)
+    table.insert(dident, dident2)
 
     local df = {}
     table.insert(df, df1)
     table.insert(df, df2)
 
     table.insert(self.gradInput, df)
-    table.insert(sefl.gradInput, dident)
+    table.insert(self.gradInput, dident)
     return self.gradInput
 end
 

@@ -19,9 +19,9 @@ function RCnn.buildNet(input_size, rnn_size, output_size)
     local c3 = nn.SpatialConvolution(64, 64, 5, 5)(t2)
     local p3 = nn.SpatialMaxPooling(2, 2)(c3)
     local t3 = nn.Tanh()(p3)
-    local fc_input = nn.View(64*5)(t3)
+    local fc_input = nn.View(64*12*4)(t3)
     local dropout = nn.Dropout(0.5)(fc_input)
-    local fc_output = nn.Linear(64*5, input_size)(dropout)
+    local fc_output = nn.Linear(64*12*4, input_size)(dropout)
     
     -- rnn model
     local pre_h = inputs[2]
