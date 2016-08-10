@@ -147,7 +147,7 @@ while epoch <= opt.max_epoch do
             local checkpoint = model.net
             local checkpoint_path = path.join(opt.checkpath, 'trained_model')
             torch.save(checkpoint_path .. '.t7', checkpoint)
-            print('wrote model parameters to' .. checkpont_path .. '.t7')
+            print('wrote model parameters to' .. checkpoint_path .. '.t7')
         end
         epoch = epoch + 1
     
