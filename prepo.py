@@ -45,7 +45,7 @@ def main(params):
             
     for i in range(1, 200):
         index1[i] = index1[i-1] + seq_len1[i-1]
-        index2[i] = index2[i-1] + seq_len2[i-2]
+        index2[i] = index2[i-1] + seq_len2[i-1]
 
     f1 = h5py.File(os.path.join(params['file_root'],params['output1']), 'w')
     f1.create_dataset('imgs', dtype = 'uint8', data = imgs_data1)
