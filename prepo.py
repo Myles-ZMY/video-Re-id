@@ -12,8 +12,8 @@ def main(params):
     seq_len2 = np.zeros(200, dtype = 'uint32')
     index1 = np.zeros(200, dtype = 'uint32')
     index2 = np.zeros(200, dtype = 'uint32')
-    index1[0] = 1 # in torch/lua index start from 1
-    index2[0] = 1
+    index1[0] = 0 # in torch/lua index start from 1
+    index2[0] = 0
     
     file_name1 = os.listdir(file_path1)
 
@@ -29,23 +29,27 @@ def main(params):
     imgs_data1 = np.zeros((img_n1, 3, 128, 64), dtype = 'uint8')
     imgs_data2 = np.zeros((img_n2, 3, 128, 64), dtype = 'uint8')
 
+    for i in range(1, 200):                                                                                                                                                                                    
+        index1[i] = index1[i-1] + seq_len1[i-1]
+        index2[i] = index2[i-1] + seq_len2[i-1]
+
     for i,name in enumerate(file_name1):
         imgs1 = os.listdir(os.path.join(file_path1, name))
         imgs2 = os.listdir(os.path.join(file_path2, name))
+        print('process the %d person' %(i+1))
         for j,img in enumerate(imgs1):
             img_path = os.path.join(file_path1, name, img)
             x = imread(img_path)
             x = x.transpose(2, 0, 1)
-            imgs_data1[j] = x
+            imgs_data1[j+index1[i]] = x
         for j,img in enumerate(imgs2):
             img_path = os.path.join(file_path2, name, img)
             x = imread(img_path)
             x = x.transpose(2, 0, 1)
-            imgs_data2[j] = x
-            
-    for i in range(1, 200):
-        index1[i] = index1[i-1] + seq_len1[i-1]
-        index2[i] = index2[i-1] + seq_len2[i-1]
+            imgs_data2[j+index2[i]] = x
+
+    index1 = index1 + 1
+    index2 = index2 + 1
 
     f1 = h5py.File(os.path.join(params['file_root'],params['output1']), 'w')
     f1.create_dataset('imgs', dtype = 'uint8', data = imgs_data1)
