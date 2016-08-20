@@ -16,7 +16,7 @@ cmd:option('-rnn_size', 128, 'rnn hidden ecoding size')
 cmd:option('-input_size', 128, 'image encoding size')
 
 cmd:option('-max_epoch', 500, 'max number of epoch')
-cmd:option('-learning_rate', 0.003, 'learning rate for training')
+cmd:option('-learning_rate', 0.001, 'learning rate for training')
 cmd:option('-gpuid', 0, 'which gpu to use, -1=use cpu')
 cmd:option('-seed', 123, 'random number generator seed')
 cmd:option('-checkpath', '', 'checkpoint path for save model parameters empty  =  this folder')
