@@ -8,10 +8,10 @@ import json
 def main(params):
     file_path1 = os.path.join(params['file_root'], 'camera_a')
     file_path2 = os.path.join(params['file_root'], 'camera_b')
-    seq_len1 = np.zeros(200, dtype = 'uint32')
-    seq_len2 = np.zeros(200, dtype = 'uint32')
-    index1 = np.zeros(200, dtype = 'uint32')
-    index2 = np.zeros(200, dtype = 'uint32')
+    seq_len1 = np.zeros(100, dtype = 'uint32')
+    seq_len2 = np.zeros(100, dtype = 'uint32')
+    index1 = np.zeros(100, dtype = 'uint32')
+    index2 = np.zeros(100, dtype = 'uint32')
     index1[0] = 0 # in torch/lua index start from 1
     index2[0] = 0
     
@@ -29,7 +29,7 @@ def main(params):
     imgs_data1 = np.zeros((img_n1, 3, 128, 64), dtype = 'uint8')
     imgs_data2 = np.zeros((img_n2, 3, 128, 64), dtype = 'uint8')
 
-    for i in range(1, 200):                                                                                                                                                                                    
+    for i in range(1, 100):                                                                                                                                                                                    
         index1[i] = index1[i-1] + seq_len1[i-1]
         index2[i] = index2[i-1] + seq_len2[i-1]
 

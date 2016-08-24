@@ -47,6 +47,11 @@ function layer:training()
             j:training()
         end
     end
+
+    for k,v in pairs(self.linears) do
+        v:training()
+    end
+
 end
 
 function layer:evaluate()
@@ -55,6 +60,11 @@ function layer:evaluate()
             j:evaluate()
         end
     end
+
+    for k,v in pairs(self.linears) do
+        v:training()
+    end
+
 end
 
 function layer:parameters()
@@ -83,16 +93,18 @@ function layer:updateOutput(input)
         self.state[i][0] = self.InitState[i]:cuda() 
     end
         
+    local len1 = #input[1]
+    local len2 = #input[2]
     local ot1 = {}
     local ot2 = {}
-    for t = 1,16 do    
+    for t = 1, len1 do    
         local img = seq[1][t]
         local out = self.rcnns[1][t]:forward({img, self.state[1][t-1]})
         self.state[1][t] = out[2] -- for next fram
         table.insert(ot1, out[1]) -- temporal output
     end
 
-    for t = 1,16 do
+    for t = 1, len2 do
         local img = seq[2][t]
         local out = self.rcnns[2][t]:forward({img, self.state[2][t-1]})
         self.state[2][t] = out[2]
@@ -129,12 +141,14 @@ end
 
 
 function layer:updateGradInput(input, gradOutput)
-    local dstate1 = {[16] = self.InitState[1]:cuda()}
-    local dstate2 = {[16] = self.InitState[2]:cuda()}
+    local len1 = #input[1]
+    local len2 = #input[2]
+    local dstate1 = {[len1] = self.InitState[1]:cuda()}
+    local dstate2 = {[len2] = self.InitState[2]:cuda()}
     local dimgs1 = {}
     local dimgs2 = {}
     --bp for each sequence
-    for t = 16, 1, -1 do
+    for t = len1, 1, -1 do
        local dout = {}
        local df = self.linears[1]:backward(self.output[1][1], gradOutput[2][1])
        df = (df + gradOutput[1][1])/16
@@ -145,7 +159,7 @@ function layer:updateGradInput(input, gradOutput)
        dstate1[t-1] = dinputs[2]
    end
 
-   for t = 16, 1, -1 do
+   for t = len2, 1, -1 do
        local dout = {}
        local df = self.linears[2]:backward(self.output[1][2], gradOutput[2][2])
        df = (df + gradOutput[1][2])/16

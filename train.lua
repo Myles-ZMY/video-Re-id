@@ -70,8 +70,16 @@ model.net:createClones()
 function choose_frames(index, seq_length)
     local x1 = index
     local x2 = index + seq_length - 16
-    local x = torch.random(x1, x2)
-    return x, x+15
+    local x_start = 0
+    local x_end = 0
+    if seq_length <= 16 then
+        x_start = index
+        x_end = index + seq_length - 1
+    else
+        x_start = torch.random(x1, x2)
+        x_end = x_start + 15
+    end
+    return x_start, x_end
 end
 
 
@@ -79,68 +87,66 @@ end
 local epoch = 1
 while epoch <= opt.max_epoch do
     model.net:training()
-    for i = 1,200 do
+    for i = 1, 100 do
         local x = index1[i]
         local pos = index2[i]
-        local j = torch.random(200)
-        while j == i or seq_length2[j] < 16 do
-            j = torch.random(200)
+        local j = torch.random(100)
+        while j == i do
+            j = torch.random(100)
         end
         local neg = index2[j]
         local l1 = seq_length1[i]
         local l2 = seq_length2[i]
         local l3 = seq_length2[j]
-        if l1 >16 and l2 > 16 then
-            local xs, xe = choose_frames(x, l1)
-            local ps, pe = choose_frames(pos, l2)
-            local ns, ne = choose_frames(neg, l3)
-            local train_imgs = {{}, {}, {}}
-            for k = xs, xe do
-                local ximg = imgs1:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
-                ximg = ximg:cuda()
-                table.insert(train_imgs[1], ximg)
-            end
-
-            for k = ps, pe do
-                local ximg = imgs2:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
-                ximg = ximg:cuda() 
-                table.insert(train_imgs[2], ximg)
-            end
-            
-            for k = ns, ne do
-                local ximg = imgs2:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
-                ximg = ximg:cuda()
-                table.insert(train_imgs[3], ximg)
-            end
-
-            local example = train_imgs[1]
-            local pos_seq = train_imgs[2]
-            local neg_seq = train_imgs[3]
-            local label = {}
-            table.insert(label, i)
-            table.insert(label, j)
-
-        -- a train with postive sequence 
-            local pos_feat = model.net:forward({example, pos_seq})
-            local loss1 = model.crit:forward(pos_feat, {label[1], label[1]})
-            print(string.format('the %d person postive loss in epoch %d is: %f', i, epoch, loss1))
-            model.net:zeroGradParameters()
-            local dpos_feat = model.crit:backward(pos_feat, {label[1], label[1]})
-            model.net:backward({example, pos_seq}, dpos_feat)
-            local grad = 0
-            grad = grad + grad_params
-
-        -- a train with negative sequence
-            local neg_feat = model.net:forward({example, neg_seq})
-            local loss2 = model.crit:forward(neg_feat, {label[1], label[2]})
-            print(string.format('the %d person negative loss to person %d in epoch %d is: %f', i,j, epoch, loss2))
-            model.net:zeroGradParameters()
-            local dneg_feat = model.crit:backward(neg_feat, {label[1], label[2]})
-            model.net:backward({example, neg_feat}, dneg_feat)
-            grad = (grad + grad_params)/2
-
-            params:add(-opt.learning_rate, grad)
+        local xs, xe = choose_frames(x, l1)
+        local ps, pe = choose_frames(pos, l2)
+        local ns, ne = choose_frames(neg, l3)
+        local train_imgs = {{}, {}, {}}
+        for k = xs, xe do
+            local ximg = imgs1:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
+            ximg = ximg:cuda()
+            table.insert(train_imgs[1], ximg)
         end
+
+        for k = ps, pe do
+            local ximg = imgs2:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
+            ximg = ximg:cuda() 
+            table.insert(train_imgs[2], ximg)
+        end
+        
+        for k = ns, ne do
+            local ximg = imgs2:partial({k, k}, {1, 3}, {1, 128}, {1, 64})
+            ximg = ximg:cuda()
+            table.insert(train_imgs[3], ximg)
+        end
+
+        local example = train_imgs[1]
+        local pos_seq = train_imgs[2]
+        local neg_seq = train_imgs[3]
+        local label = {}
+        table.insert(label, i)
+        table.insert(label, j)
+
+    -- a train with postive sequence 
+        local pos_feat = model.net:forward({example, pos_seq})
+        local loss1 = model.crit:forward(pos_feat, {label[1], label[1]})
+        print(string.format('the %d person postive loss to  person %d in epoch %d is: %f', i,i, epoch, loss1))
+        model.net:zeroGradParameters()
+        local dpos_feat = model.crit:backward(pos_feat, {label[1], label[1]})
+        model.net:backward({example, pos_seq}, dpos_feat)
+        local grad = 0
+        grad = grad + grad_params
+
+    -- a train with negative sequence
+        local neg_feat = model.net:forward({example, neg_seq})
+        local loss2 = model.crit:forward(neg_feat, {label[1], label[2]})
+        print(string.format('the %d person negative loss to person %d in epoch %d is: %f', i,j, epoch, loss2))
+        model.net:zeroGradParameters()
+        local dneg_feat = model.crit:backward(neg_feat, {label[1], label[2]})
+        model.net:backward({example, neg_feat}, dneg_feat)
+        grad = (grad + grad_params)/2
+
+        params:add(-opt.learning_rate, grad)
     end
         print('finish the training of epoch' .. epoch)
         if epoch % 50 == 0 then
