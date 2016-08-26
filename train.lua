@@ -17,7 +17,7 @@ cmd:option('-input_size', 128, 'image encoding size')
 
 cmd:option('-max_epoch', 500, 'max number of epoch')
 cmd:option('-learning_rate', 0.001, 'learning rate for training')
-cmd:option('-gpuid', 0, 'which gpu to use, -1=use cpu')
+cmd:option('-gpuid', 1, 'which gpu to use, -1=use cpu')
 cmd:option('-seed', 123, 'random number generator seed')
 cmd:option('-checkpath', '', 'checkpoint path for save model parameters empty  =  this folder')
 
@@ -126,18 +126,22 @@ while epoch <= opt.max_epoch do
         local label = {}
         table.insert(label, i)
         table.insert(label, j)
+        local p_len1 = #example
+        local p_len2 = #pos_seq
+        local n_len1 = #neg_seq
 
-    -- a train with postive sequence 
+    -- a train with postive sequence
+        grad_params:zero()
         local pos_feat = model.net:forward({example, pos_seq})
         local loss1 = model.crit:forward(pos_feat, {label[1], label[1]})
         print(string.format('the %d person postive loss to  person %d in epoch %d is: %f', i,i, epoch, loss1))
         model.net:zeroGradParameters()
         local dpos_feat = model.crit:backward(pos_feat, {label[1], label[1]})
         model.net:backward({example, pos_seq}, dpos_feat)
-        local grad = 0
-        grad = grad + grad_params
+        local grad = grad_params
 
     -- a train with negative sequence
+        grad_params:zero()
         local neg_feat = model.net:forward({example, neg_seq})
         local loss2 = model.crit:forward(neg_feat, {label[1], label[2]})
         print(string.format('the %d person negative loss to person %d in epoch %d is: %f', i,j, epoch, loss2))

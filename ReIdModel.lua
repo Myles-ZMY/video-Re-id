@@ -10,7 +10,7 @@ function layer:__init(opt)
     self.rnn_size = opt.rnn_size
     self.output_size = opt.output_size
     self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
-    self.linear = nn.Linear(self.output_size, 200)
+    self.linear = nn.Linear(self.output_size, 100)
     self:_createInitState()
 end
 
@@ -23,16 +23,16 @@ function layer:_createInitState()
 
 end
 
-function layer:createClones()
+function layer:createClones(len1, len2)
     
     self.rcnns = {}
     print('copy models for video sequence')
     self.rcnns[1] = {self.rcnn}
     self.rcnns[2] = {self.rcnn}
-    for t = 2,16 do
+    for t = 2, 16 do
         self.rcnns[1][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
-    for t = 2,16 do
+    for t = 2, 16 do
         self.rcnns[2][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
 
@@ -151,7 +151,7 @@ function layer:updateGradInput(input, gradOutput)
     for t = len1, 1, -1 do
        local dout = {}
        local df = self.linears[1]:backward(self.output[1][1], gradOutput[2][1])
-       df = (df + gradOutput[1][1])/16
+       df = (df + gradOutput[1][1])/len1
        table.insert(dout, df)
        table.insert(dout, dstate1[t])
        local dinputs = self.rcnns[1][t]:backward({input[1][t], self.state[1][t-1]}, dout)
@@ -162,7 +162,7 @@ function layer:updateGradInput(input, gradOutput)
    for t = len2, 1, -1 do
        local dout = {}
        local df = self.linears[2]:backward(self.output[1][2], gradOutput[2][2])
-       df = (df + gradOutput[1][2])/16
+       df = (df + gradOutput[1][2])/len2
        table.insert(dout, df)
        table.insert(dout, dstate2[t])
        local dinputs = self.rcnns[2][t]:backward({input[2][t], self.state[2][t-1]}, dout)
@@ -234,8 +234,8 @@ function crit:updateGradInput(input, label)
     local identity = true
     if label1 ~= label2 then identity = false end
    
-    local dsoft1 = torch.zeros(200)
-    local dsoft2 = torch.zeros(200)
+    local dsoft1 = torch.zeros(100)
+    local dsoft2 = torch.zeros(100)
     dsoft1[label1] = -1
     dsoft2[label2] = -1
     dsoft1 = dsoft1:cuda()
