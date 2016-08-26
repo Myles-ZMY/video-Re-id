@@ -10,9 +10,9 @@ cmd:text()
 cmd:text('Options')
 
 cmd:option('-model', 'trained_model.t7', 'path to the model to test/evaluate')
-cmd:option('-input_prob_images', './reid_data/test_images/test_data1', 'path to probe images to test')
-cmd:option('-input_gall_images', './reid_data/test_images/test_data2', 'path to gallery images to search')
-cmd:option('-gpuid', 0, 'which gpu to use. -1 = use cpu')
+cmd:option('-input_prob_images', './reid_data/test_images/data1.h5', 'path to probe images to test')
+cmd:option('-input_gall_images', './reid_data/test_images/data2.h5', 'path to gallery images to search')
+cmd:option('-gpuid', 1, 'which gpu to use. -1 = use cpu')
 cmd:option('-seed', 123, 'random seed')
 
 cmd:text()
@@ -47,30 +47,49 @@ local gallery = {}
 for i = 1,100 do
     local imgs_set_p = {}
     local imgs_set_g = {}
-    for j = 0,15 do
-        local ximg_p = imgs1:partial({index1[i]+j, index1[i]+j}, {1, 3}, {1, 128}, {1, 64})
-        local ximg_g = imgs2:partial({index2[i]+j, index2[i]+j}, {1, 3}, {1, 128}, {1, 64})
-        if length1[i] < (j+1)  then
-            ximg_p = imgs1:partial({index1[i]+length1[i]-1, index1[i]+length1[i]-1}, {1, 3}, {1, 128}, {1, 64})
+    if length1[i] > 16 then
+        local x1 = index1[i]
+        for j = x1, x1+15 do
+            local ximg = imgs1:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
+            table.insert(imgs_set_p, ximg)
         end
-        if length2[i] < (j+1) then
-            ximg_g = imgs2:partial({index2[i]+length2[i]-1, index2[i]+length2[i]-1}, {1, 3}, {1, 128}, {1, 64})
+    else
+        local x1 = index1[i]
+        for j = x1, x1+length1[i]-1 do
+            local ximg = imgs1:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
+            table.insert(imgs_set_p, ximg)
         end
-
-        table.insert(imgs_set_p, ximg_p)
-        table.insert(imgs_set_g, ximg_g)
     end
+
+    if length2[i] > 16 then
+        local x1 = index2[i] + length2[i] - 16
+        for j = x1, x1+15 do
+            local ximg = imgs2:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
+            table.insert(imgs_set_g, ximg)
+        end
+    else
+        local x1 = index2[i]
+        for j = x1, x1+length2[i]-1 do
+            local ximg = imgs2:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
+            table.insert(imgs_set_g, ximg)
+        end
+    end
+    
     table.insert(probe, imgs_set_p)
     table.insert(gallery, imgs_set_g)
 end
 
-
+--convert images to gpu
 if opt.gpuid >= 0 then
     for i = 1, 100 do
-        for j = 1, 16 do
+        for j = 1, #probe[i] do
             probe[i][j] = probe[i][j]:cuda()
+        end
+        
+        for j = 1, #gallery[i] do
             gallery[i][j] = gallery[i][j]:cuda()
         end
+
     end
 end
 
