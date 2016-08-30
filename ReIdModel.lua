@@ -23,7 +23,7 @@ function layer:_createInitState()
 
 end
 
-function layer:createClones(len1, len2)
+function layer:createClones()
     
     self.rcnns = {}
     print('copy models for video sequence')
