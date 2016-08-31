@@ -20,6 +20,8 @@ cmd:option('-learning_rate', 0.001, 'learning rate for training')
 cmd:option('-gpuid', 1, 'which gpu to use, -1=use cpu')
 cmd:option('-seed', 123, 'random number generator seed')
 cmd:option('-checkpath', '', 'checkpoint path for save model parameters empty  =  this folder')
+cmd:option('-start_from', '', 'start training from a extent model,empty = start from scratch')
+cmd:option('-model_name', 'trained_model', 'name for saved model')
 
 cmd:text()
 
@@ -57,8 +59,14 @@ local m_params = {}
 m_params.img_feat_len = opt.input_size
 m_params.rnn_size = opt.rnn_size
 m_params.output_size = opt.rnn_size
-model.net = nn.ReIdModel(m_params)
-model.crit = nn.ReIdCriterion()
+if opt.start_from == '' then
+    model.net = nn.ReIdModel(m_params)
+    model.crit = nn.ReIdCriterion()
+else
+    model.net = torch.load(opt.start_from)
+    model.crit = nn.ReIdCriterion()
+end
+
 
 if opt.gpuid >= 0 then  -- for gpu
     for k,v in pairs(model) do v:cuda() end
@@ -126,9 +134,6 @@ while epoch <= opt.max_epoch do
         local label = {}
         table.insert(label, i)
         table.insert(label, j)
-        local p_len1 = #example
-        local p_len2 = #pos_seq
-        local n_len1 = #neg_seq
 
     -- a train with postive sequence
         grad_params:zero()
@@ -155,7 +160,7 @@ while epoch <= opt.max_epoch do
         print('finish the training of epoch' .. epoch)
         if epoch % 50 == 0 then
             local checkpoint = model.net
-            local checkpoint_path = path.join(opt.checkpath, 'trained_model')
+            local checkpoint_path = path.join(opt.checkpath, opt.model_name)
             torch.save(checkpoint_path .. '.t7', checkpoint)
             print('wrote model parameters to' .. checkpoint_path .. '.t7')
         end

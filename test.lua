@@ -40,6 +40,9 @@ local data2 = hdf5.open(opt.input_gall_images, 'r')
 local imgs2 = data2:read('/imgs')
 local index2 = data2:read('/index'):all()
 local length2 = data2:read('/seq_length'):all()
+local n1 = torch.sum(length1)
+local n2 = torch.sum(length2)
+print(string.format('load %d images from camera a, load %d images from camera b', n1, n2))
 
 local probe = {}
 local gallery = {}
