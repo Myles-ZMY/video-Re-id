@@ -1,6 +1,6 @@
 require 'nn'
 require 'nngraph'
--- a easy way to build a raw rnn 
+
 local RCnn = {}
 function RCnn.buildNet(input_size, rnn_size, output_size)
 

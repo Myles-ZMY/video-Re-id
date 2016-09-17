@@ -10,7 +10,8 @@ function layer:__init(opt)
     self.rnn_size = opt.rnn_size
     self.output_size = opt.output_size
     self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
-    self.linear = nn.Linear(self.output_size, 100)
+    self.linear = nn.Linear(self.output_size, opt.class_n)
+    self.soft = nn.LogSoftMax()
     self:_createInitState()
 end
 
@@ -23,16 +24,16 @@ function layer:_createInitState()
 
 end
 
-function layer:createClones()
+function layer:createClones(max_len)
     
     self.rcnns = {}
     print('copy models for video sequence')
     self.rcnns[1] = {self.rcnn}
-    self.rcnns[2] = {self.rcnn}
-    for t = 2, 16 do
+    self.rcnns[2] = {}
+    for t = 2, max_len do
         self.rcnns[1][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
-    for t = 2, 16 do
+    for t = 1, max_len do
         self.rcnns[2][t] = self.rcnn:clone('weight', 'bias', 'gradWeight', 'gradBias')
     end
 
@@ -108,7 +109,7 @@ function layer:updateOutput(input)
         local img = seq[2][t]
         local out = self.rcnns[2][t]:forward({img, self.state[2][t-1]})
         self.state[2][t] = out[2]
-        table.insert(ot2, out[2])
+        table.insert(ot2, out[1])
     end
     local sf1 = 0
     local sf2 = 0
@@ -127,15 +128,17 @@ function layer:updateOutput(input)
     table.insert(seq_feat, sf1)
     table.insert(seq_feat, sf2)
 
-    local ident1 = self.linears[1]:forward(sf1)
-    local ident2 = self.linears[2]:forward(sf2)
-    local ident = {}
-    table.insert(ident, ident1)
-    table.insert(ident, ident2)
+    self.ident1 = self.linears[1]:forward(sf1)
+    self.ident2 = self.linears[2]:forward(sf2)
+    local logp1 = self.soft:forward(self.ident1)
+    local logp2 = self.soft:forward(self.ident2)
+    local logp = {}
+    table.insert(logp, logp1)
+    table.insert(logp, logp2)
 
     self.output = {}
     table.insert(self.output, seq_feat)
-    table.insert(self.output, ident)
+    table.insert(self.output, logp)
     return self.output
 end
 
@@ -148,11 +151,15 @@ function layer:updateGradInput(input, gradOutput)
     local dimgs1 = {}
     local dimgs2 = {}
     --bp for each sequence
+    local df1 = self.soft:backward(self.ident1, gradOutput[2][1])
+    local df2 = self.soft:backward(self.ident2, gradOutput[2][2])
+    df1 = self.linears[1]:backward(self.output[1][1], df1)
+    df2 = self.linears[2]:backward(self.output[1][2], df2)
+    df1 = (df1 + gradOutput[1][1])/len1
+    df2 = (df2 + gradOutput[1][2])/len2
     for t = len1, 1, -1 do
        local dout = {}
-       local df = self.linears[1]:backward(self.output[1][1], gradOutput[2][1])
-       df = (df + gradOutput[1][1])/len1
-       table.insert(dout, df)
+       table.insert(dout, df1)
        table.insert(dout, dstate1[t])
        local dinputs = self.rcnns[1][t]:backward({input[1][t], self.state[1][t-1]}, dout)
        dimgs1[t] = dinputs[1]
@@ -161,9 +168,7 @@ function layer:updateGradInput(input, gradOutput)
 
    for t = len2, 1, -1 do
        local dout = {}
-       local df = self.linears[2]:backward(self.output[1][2], gradOutput[2][2])
-       df = (df + gradOutput[1][2])/len2
-       table.insert(dout, df)
+       table.insert(dout, df2)
        table.insert(dout, dstate2[t])
        local dinputs = self.rcnns[2][t]:backward({input[2][t], self.state[2][t-1]}, dout)
        dimgs2[t] = dinputs[2]
@@ -192,21 +197,15 @@ end
 function crit:updateOutput(input, label)
     local f1 = input[1][1]
     local f2 = input[1][2]
-    local ident1 = input[2][1]
-    local ident2 = input[2][2]
+    local logp1  = input[2][1]
+    local logp2  = input[2][2]
     local label1 = label[1]
     local label2 = label[2]
     local identity = true
     if label1 ~= label2 then identity = false end
     assert(f1:size(1) == f2:size(1), 'feature dimension not match')
-    self.soft1 = nn.LogSoftMax()
-    self.soft2 = nn.LogSoftMax()
-    self.soft1:cuda()
-    self.soft2:cuda()
-    local soft1 = self.soft1:forward(ident1)
-    local soft2 = self.soft2:forward(ident2)
-    local l1 = -soft1[label1] -- identity loss
-    local l2 = -soft2[label2]
+    local l1 = -logp1[label1] -- identity loss
+    local l2 = -logp2[label2]
     local s_loss
     -- calculate the Siamese Network loss
     if identity then
@@ -221,53 +220,51 @@ function crit:updateOutput(input, label)
 end
 
 function crit:updateGradInput(input, label)
-    local df1 = torch.Tensor(128):zero()
-    local df2 = torch.Tensor(128):zero()
-    df1 = df1:cuda()
-    df2 = df2:cuda()
     local f1 = input[1][1]
     local f2 = input[1][2]
-    local ident1 = input[2][1]
-    local ident2 = input[2][2]
+    local dim = f1:size(1)
+    local df1 = torch.Tensor(dim):typeAs(f1)
+    local df2 = torch.Tensor(dim):typeAs(f2)
+    local logp1 = input[2][1]
+    local logp2 = input[2][2]
     local label1 = label[1]
     local label2 = label[2]
     local identity = true
     if label1 ~= label2 then identity = false end
    
-    local dsoft1 = torch.zeros(100)
-    local dsoft2 = torch.zeros(100)
-    dsoft1[label1] = -1
-    dsoft2[label2] = -1
-    dsoft1 = dsoft1:cuda()
-    dsoft2 = dsoft2:cuda()
-    local dident1 = self.soft1:backward(ident1, dsoft1)
-    local dident2 = self.soft2:backward(ident2, dsoft2)
+    local n = logp1:size(1)
+    local dlogp1 = torch.zeros(n)
+    local dlogp2 = torch.zeros(n)
+    dlogp1[label1] = -1
+    dlogp2[label2] = -1
+    dlogp1 = dlogp1:cuda()
+    dlogp2 = dlogp2:cuda()
 
     if identity then
         local delta_f = f1 - f2
-        df1 = df1 + delta_f
-        df2 = df2 - delta_f
+        df1 = delta_f
+        df2 = -delta_f
     else
         if self.z < 2 then
             local sum = torch.sum(torch.pow(f1-f2,2))
             local d = torch.pow(sum,0.5)
             local delta_f = (1 - 2/d) * (f1 - f2)
-            df1 = df1 + delta_f
-            df2 = df2 - delta_f
+            df1 = delta_f
+            df2 = -delta_f
         end
     end
 
     self.gradInput = {}
-    local dident = {}
-    table.insert(dident, dident1)
-    table.insert(dident, dident2)
+    local dlogp = {}
+    table.insert(dlogp, dlogp1)
+    table.insert(dlogp, dlogp2)
 
     local df = {}
     table.insert(df, df1)
     table.insert(df, df2)
 
     table.insert(self.gradInput, df)
-    table.insert(self.gradInput, dident)
+    table.insert(self.gradInput, dlogp)
     return self.gradInput
 end
 
