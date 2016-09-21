@@ -10,8 +10,9 @@ function layer:__init(opt)
     self.rnn_size = opt.rnn_size
     self.output_size = opt.output_size
     self.rcnn = RCnn.buildNet(self.input_size, self.rnn_size, self.output_size)
-    self.linear = nn.Linear(self.output_size, opt.class_n)
-    self.soft = nn.LogSoftMax()
+    self.linear = nn.Linear(self.output_size, opt.class_n, false)
+    self.soft1 = nn.LogSoftMax()
+    self.soft2 = nn.LogSoftMax()
     self:_createInitState()
 end
 
@@ -127,11 +128,10 @@ function layer:updateOutput(input)
     local seq_feat = {}
     table.insert(seq_feat, sf1)
     table.insert(seq_feat, sf2)
-
     self.ident1 = self.linears[1]:forward(sf1)
     self.ident2 = self.linears[2]:forward(sf2)
-    local logp1 = self.soft:forward(self.ident1)
-    local logp2 = self.soft:forward(self.ident2)
+    local logp1 = self.soft1:forward(self.ident1)
+    local logp2 = self.soft2:forward(self.ident2)
     local logp = {}
     table.insert(logp, logp1)
     table.insert(logp, logp2)
@@ -151,8 +151,8 @@ function layer:updateGradInput(input, gradOutput)
     local dimgs1 = {}
     local dimgs2 = {}
     --bp for each sequence
-    local df1 = self.soft:backward(self.ident1, gradOutput[2][1])
-    local df2 = self.soft:backward(self.ident2, gradOutput[2][2])
+    local df1 = self.soft1:backward(self.ident1, gradOutput[2][1])
+    local df2 = self.soft2:backward(self.ident2, gradOutput[2][2])
     df1 = self.linears[1]:backward(self.output[1][1], df1)
     df2 = self.linears[2]:backward(self.output[1][2], df2)
     df1 = (df1 + gradOutput[1][1])/len1
@@ -171,7 +171,7 @@ function layer:updateGradInput(input, gradOutput)
        table.insert(dout, df2)
        table.insert(dout, dstate2[t])
        local dinputs = self.rcnns[2][t]:backward({input[2][t], self.state[2][t-1]}, dout)
-       dimgs2[t] = dinputs[2]
+       dimgs2[t] = dinputs[1]
        dstate2[t-1] = dinputs[2]
    end
 
@@ -204,18 +204,18 @@ function crit:updateOutput(input, label)
     local identity = true
     if label1 ~= label2 then identity = false end
     assert(f1:size(1) == f2:size(1), 'feature dimension not match')
-    local l1 = -logp1[label1] -- identity loss
-    local l2 = -logp2[label2]
-    local s_loss
+    self.l1 = -logp1[label1] -- identity loss
+    self.l2 = -logp2[label2]
+    local d = torch.pow(torch.sum(torch.pow(f1-f2, 2)), 0.5)
     -- calculate the Siamese Network loss
     if identity then
-        s_loss = torch.sum(torch.pow(f1-f2, 2)) / 2
+        self.s_loss = 0.5 * torch.pow(d, 2)
     else
-        self.z = 2 - torch.sum(torch.pow(f1-f2, 2))
-        s_loss = math.max(self.z, 0) / 2
+        self.z = 2 - d
+        self.s_loss = 0.5 * torch.pow(math.max(self.z, 0), 2)
     end
    
-    self.output = l1 + l2 + s_loss
+    self.output = self.l1 + self.l2 + self.s_loss
     return self.output
 end
 
@@ -239,13 +239,15 @@ function crit:updateGradInput(input, label)
     dlogp2[label2] = -1
     dlogp1 = dlogp1:cuda()
     dlogp2 = dlogp2:cuda()
-
+    
+    df1:zero()
+    df2:zero()
     if identity then
         local delta_f = f1 - f2
         df1 = delta_f
         df2 = -delta_f
     else
-        if self.z < 2 then
+        if self.z > 0 then
             local sum = torch.sum(torch.pow(f1-f2,2))
             local d = torch.pow(sum,0.5)
             local delta_f = (1 - 2/d) * (f1 - f2)
