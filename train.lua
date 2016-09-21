@@ -51,6 +51,7 @@ print(string.format('load %d persons form camera b', number2))
 
 assert(number1 == number2, 'the amounts of people in both cameras should be equal')
 local n_p = number1 -- the amount of persons
+print(string.format('there are %d persons in training data', n_p))
 local no = train_data:read('/number'):all()
 
 if opt.gpuid >= 0 then
@@ -99,7 +100,7 @@ function choose_frames(index, seq_length, img, gpu)
     end
 
    for i = x_start, x_end do
-       local img_c = img:partial({x_start, x_start}, {1, 3}, {1, 128}, {1, 64})
+       local img_c = img:partial({i, i}, {1, 3}, {1, 128}, {1, 64})
        if gpu then img_c = img_c:cuda() end
        table.insert(frames, img_c)
    end
@@ -137,9 +138,11 @@ while epoch <= opt.max_epoch do
         local pos_feat = model.net:forward({example, pos_seq})
         local loss1 = model.crit:forward(pos_feat, {label[1], label[1]})
         print(string.format('the %d person postive loss to  person %d in epoch %d is: %f', i,i, epoch, loss1))
+        print(model.crit.l1, model.crit.l2, model.crit.s_loss)
         local dpos_feat = model.crit:backward(pos_feat, {label[1], label[1]})
         model.net:backward({example, pos_seq}, dpos_feat)
-        local grad = grad_params
+        params:add(-opt.learning_rate, grad_params)
+        --local grad = grad_params
         --print(torch.max(grad))
         --print(torch.min(grad))
 
@@ -148,13 +151,13 @@ while epoch <= opt.max_epoch do
         local neg_feat = model.net:forward({example, neg_seq})
         local loss2 = model.crit:forward(neg_feat, {label[1], label[2]})
         print(string.format('the %d person negative loss to person %d in epoch %d is: %f', i,j, epoch, loss2))
+        print(model.crit.l1, model.crit.l2, model.crit.s_loss)
         local dneg_feat = model.crit:backward(neg_feat, {label[1], label[2]})
         model.net:backward({example, neg_feat}, dneg_feat)
-        grad = (grad + grad_params)/2
         --print(torch.max(grad))
         --print(torch.min(grad))
 
-        params:add(-opt.learning_rate, grad)
+        params:add(-opt.learning_rate, grad_params)
         --print(torch.max(params))
         --print(torch.min(params))
     end
@@ -163,7 +166,7 @@ while epoch <= opt.max_epoch do
             local checkpoint = model.net
             local checkpoint_path = path.join(opt.checkpath, opt.model_name)
             torch.save(checkpoint_path .. '.t7', checkpoint)
-            print('wrote model parameters to' .. checkpoint_path .. '.t7')
+            print('wrote model parameters to ' .. checkpoint_path .. '.t7')
         end
         epoch = epoch + 1
     

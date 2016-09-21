@@ -14,7 +14,7 @@ cmd:option('-input_images', './reid_data/data_test.h5', 'path to probe images to
 cmd:option('-maxR', 20, 'max CMC rank value')
 cmd:option('-gpuid', 1, 'which gpu to use. -1 = use cpu')
 cmd:option('-seed', 123, 'random seed')
-
+cmd:option('-gallery_length', 16, 'gallery sequence length for test')
 cmd:text()
 
 local opt = cmd:parse(arg)
@@ -29,6 +29,8 @@ if opt.gpuid >= 0 then
 end
 
 local reid_net = torch.load(opt.model)
+len = opt.gallery_length
+reid_net:createClones(len)
 reid_net:evaluate()
 
 print('load test images data')
@@ -42,20 +44,19 @@ local length_g = data:read('/seq_length2'):all()
 local n1 = torch.sum(length_p)
 local n2 = torch.sum(length_g)
 local num1 = index_p:size(1)
-local num2 = index_g:size(2)
+local num2 = index_g:size(1)
 assert(num1 == num2, 'amount of people do not match')
 local num = num1
-print(string.format('load %d people and %d images from camera a, load %d images from camera b' num, n1, n2))
+print(string.format('load %d people and %d images from camera a, load %d images from camera b', num, n1, n2))
 
 local probe = {}
 local gallery = {}
-
 for i = 1, num do
     local imgs_set_p = {}
     local imgs_set_g = {}
-    if length_p[i] > 16 then
+    if length_p[i] > len then
         local x1 = index_p[i]
-        for j = x1, x1+15 do
+        for j = x1, x1 + len - 1 do
             local ximg = imgs_p:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
             table.insert(imgs_set_p, ximg)
         end
@@ -67,9 +68,9 @@ for i = 1, num do
         end
     end
 
-    if length_g[i] > 16 then
-        local x1 = index_g[i] + length_g[i] - 16
-        for j = x1, x1+15 do
+    if length_g[i] > len then
+        local x1 = index_g[i] + length_g[i] - len
+        for j = x1, x1 + len - 1 do
             local ximg = imgs_g:partial({j, j}, {1, 3}, {1, 128}, {1, 64})
             table.insert(imgs_set_g, ximg)
         end
